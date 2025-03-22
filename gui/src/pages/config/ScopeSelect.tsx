@@ -5,19 +5,24 @@ import {
   UserCircleIcon,
 } from "@heroicons/react/24/outline";
 import { useAuth } from "../../context/Auth";
+import { useWebviewListener } from "../../hooks/useWebviewListener";
+import { selectOrgThunk } from "../../redux";
 import { useAppDispatch, useAppSelector } from "../../redux/hooks";
-import { selectOrgThunk } from "../../redux/thunks/profileAndOrg";
 
 export function ScopeSelect() {
   const { organizations, selectedOrganization } = useAuth();
   const selectedOrgId = useAppSelector(
-    (state) => state.session.selectedOrganizationId,
+    (state) => state.organizations.selectedOrganizationId,
   );
   const dispatch = useAppDispatch();
 
   const handleChange = (newValue: string | null) => {
     dispatch(selectOrgThunk(newValue));
   };
+
+  useWebviewListener("didSelectOrganization", async (data) => {
+    handleChange(data.orgId);
+  });
 
   const CurScopeEntityFallBackIcon = selectedOrgId
     ? BuildingOfficeIcon

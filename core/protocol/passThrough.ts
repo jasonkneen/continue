@@ -26,6 +26,7 @@ export const WEBVIEW_TO_CORE_PASS_THROUGH: (keyof ToCoreFromWebviewProtocol)[] =
     "config/openProfile",
     "config/updateSharedConfig",
     "config/updateSelectedModel",
+    "mcp/reloadServer",
     "context/getContextItems",
     "context/getSymbolsForFiles",
     "context/loadSubmenuItems",
@@ -35,10 +36,8 @@ export const WEBVIEW_TO_CORE_PASS_THROUGH: (keyof ToCoreFromWebviewProtocol)[] =
     "autocomplete/complete",
     "autocomplete/cancel",
     "autocomplete/accept",
-    "command/run",
     "tts/kill",
     "llm/complete",
-    "llm/streamComplete",
     "llm/streamChat",
     "llm/listModels",
     "streamDiffLines",
@@ -72,7 +71,6 @@ export const WEBVIEW_TO_CORE_PASS_THROUGH: (keyof ToCoreFromWebviewProtocol)[] =
 export const CORE_TO_WEBVIEW_PASS_THROUGH: (keyof ToWebviewFromCoreProtocol)[] =
   [
     "configUpdate",
-    "configError",
     "getDefaultModelTitle",
     "indexProgress", // Codebase
     "indexing/statusUpdate", // Docs, etc.
@@ -84,4 +82,6 @@ export const CORE_TO_WEBVIEW_PASS_THROUGH: (keyof ToWebviewFromCoreProtocol)[] =
     "getWebviewHistoryLength",
     "getCurrentSessionId",
     "docs/suggestions",
+    "didCloseFiles",
+    "didSelectOrganization",
   ];

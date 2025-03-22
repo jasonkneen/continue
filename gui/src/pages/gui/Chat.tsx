@@ -7,7 +7,7 @@ import {
 import { Editor, JSONContent } from "@tiptap/react";
 import { InputModifiers, RangeInFileWithContents, ToolCallState } from "core";
 import { streamResponse } from "core/llm/stream";
-import { stripImages } from "core/util/messageContent";
+import { renderChatMessage, stripImages } from "core/util/messageContent";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ErrorBoundary } from "react-error-boundary";
@@ -28,19 +28,14 @@ import ChatIndexingPeeks from "../../components/indexing/ChatIndexingPeeks";
 import ContinueInputBox from "../../components/mainInput/ContinueInputBox";
 import { NewSessionButton } from "../../components/mainInput/NewSessionButton";
 import resolveEditorContent from "../../components/mainInput/resolveInput";
-import { TutorialCard } from "../../components/mainInput/TutorialCard";
+import ThinkingBlockPeek from "../../components/mainInput/ThinkingBlockPeek";
 import AssistantSelect from "../../components/modelSelection/platform/AssistantSelect";
-import {
-  OnboardingCard,
-  useOnboardingCard,
-} from "../../components/OnboardingCard";
-import { PlatformOnboardingCard } from "../../components/OnboardingCard/platform/PlatformOnboardingCard";
+import { useOnboardingCard } from "../../components/OnboardingCard";
 import PageHeader from "../../components/PageHeader";
 import StepContainer from "../../components/StepContainer";
 import AcceptRejectAllButtons from "../../components/StepContainer/AcceptRejectAllButtons";
 import { TabBar } from "../../components/TabBar/TabBar";
 import { IdeMessengerContext } from "../../context/IdeMessenger";
-import { useTutorialCard } from "../../hooks/useTutorialCard";
 import { useWebviewListener } from "../../hooks/useWebviewListener";
 import { useAppDispatch, useAppSelector } from "../../redux/hooks";
 import { selectUseHub } from "../../redux/selectors";
@@ -76,9 +71,12 @@ import {
 import getMultifileEditPrompt from "../../util/getMultifileEditPrompt";
 import { getLocalStorage, setLocalStorage } from "../../util/localStorage";
 import ConfigErrorIndicator from "./ConfigError";
+import { EmptyChatBody } from "./EmptyChatBody";
+import { ExploreDialogWatcher } from "./ExploreDialogWatcher";
 import { ToolCallDiv } from "./ToolCallDiv";
 import { ToolCallButtons } from "./ToolCallDiv/ToolCallButtonsDiv";
 import ToolOutput from "./ToolCallDiv/ToolOutput";
+import { useAutoScroll } from "./useAutoScroll";
 
 const StopButton = styled.div`
   background-color: ${vscBackground};
@@ -136,67 +134,11 @@ function fallbackRender({ error, resetErrorBoundary }: any) {
   );
 }
 
-const useAutoScroll = (
-  ref: React.RefObject<HTMLDivElement>,
-  history: unknown[],
-) => {
-  const [userHasScrolled, setUserHasScrolled] = useState(false);
-
-  useEffect(() => {
-    if (history.length) {
-      setUserHasScrolled(false);
-    }
-  }, [history.length]);
-
-  useEffect(() => {
-    if (!ref.current || history.length === 0) return;
-
-    const handleScroll = () => {
-      const elem = ref.current;
-      if (!elem) return;
-
-      const isAtBottom =
-        Math.abs(elem.scrollHeight - elem.scrollTop - elem.clientHeight) < 1;
-
-      /**
-       * We stop auto scrolling if a user manually scrolled up.
-       * We resume auto scrolling if a user manually scrolled to the bottom.
-       */
-      setUserHasScrolled(!isAtBottom);
-    };
-
-    const resizeObserver = new ResizeObserver(() => {
-      const elem = ref.current;
-      if (!elem || userHasScrolled) return;
-      elem.scrollTop = elem.scrollHeight;
-    });
-
-    ref.current.addEventListener("scroll", handleScroll);
-
-    // Observe the container
-    resizeObserver.observe(ref.current);
-
-    // Observe all immediate children
-    Array.from(ref.current.children).forEach((child) => {
-      resizeObserver.observe(child);
-    });
-
-    return () => {
-      resizeObserver.disconnect();
-      ref.current?.removeEventListener("scroll", handleScroll);
-    };
-  }, [ref, history.length, userHasScrolled]);
-};
-
 export function Chat() {
   const posthog = usePostHog();
   const dispatch = useAppDispatch();
   const ideMessenger = useContext(IdeMessengerContext);
   const onboardingCard = useOnboardingCard();
-  const { showTutorialCard, closeTutorialCard } = useTutorialCard();
-  const selectedModelTitle = useAppSelector(
-    (store) => store.config.defaultModelTitle,
-  );
   const showSessionTabs = useAppSelector(
     (store) => store.config.config.ui?.showSessionTabs,
   );
@@ -227,6 +169,9 @@ export function Chat() {
   );
   const lastSessionId = useAppSelector((state) => state.session.lastSessionId);
   const useHub = useAppSelector(selectUseHub);
+  const hasDismissedExploreDialog = useAppSelector(
+    (state) => state.ui.hasDismissedExploreDialog,
+  );
 
   useEffect(() => {
     // Cmd + Backspace to delete current step
@@ -322,6 +267,10 @@ export function Chat() {
   );
 
   async function handleSingleRangeEditOrInsertion(editorState: JSONContent) {
+    if (!defaultModel) {
+      console.error("No selected chat model");
+      return;
+    }
     const [contextItems, __, userInstructions] = await resolveEditorContent({
       editorState,
       modifiers: {
@@ -331,7 +280,7 @@ export function Chat() {
       ideMessenger,
       defaultContextProviders: [],
       dispatch,
-      selectedModelTitle,
+      selectedModelTitle: defaultModel.title,
     });
 
     const prompt = [
@@ -342,7 +291,7 @@ export function Chat() {
     ideMessenger.post("edit/sendPrompt", {
       prompt,
       range: codeToEdit[0] as RangeInFileWithContents,
-      selectedModelTitle,
+      selectedModelTitle: defaultModel.title,
     });
 
     dispatch(submitEdit(prompt));
@@ -366,7 +315,7 @@ export function Chat() {
     [history],
   );
 
-  const showScrollbar = showChatScrollbar || window.innerHeight > 5000;
+  const showScrollbar = showChatScrollbar ?? window.innerHeight > 5000;
 
   useAutoScroll(stepsDivRef, history);
 
@@ -448,6 +397,15 @@ export function Chat() {
                     );
                   })}
                 </div>
+              ) : item.message.role === "thinking" ? (
+                <ThinkingBlockPeek
+                  content={renderChatMessage(item.message)}
+                  redactedThinking={item.message.redactedThinking}
+                  index={index}
+                  prevItem={index > 0 ? history[index - 1] : null}
+                  inProgress={index === history.length - 1}
+                  signature={item.message.signature}
+                />
               ) : (
                 <div className="thread-message">
                   <TimelineItem
@@ -486,8 +444,8 @@ export function Chat() {
           </div>
         ))}
       </StepsDiv>
-      <div className={`relative`}>
-        <div className="absolute -top-8 right-2 z-30">
+      <div className={`relative mt-1`}>
+        <div className="absolute -top-8 right-2 z-30 flex flex-col gap-1">
           {ttsActive && (
             <StopButton
               className=""
@@ -570,24 +528,13 @@ export function Chat() {
             />
           )}
 
-          {history.length === 0 && (
-            <>
-              {onboardingCard.show && (
-                <div className="mx-2 mt-10">
-                  {useHub ? (
-                    <PlatformOnboardingCard isDialog={false} />
-                  ) : (
-                    <OnboardingCard isDialog={false} />
-                  )}
-                </div>
-              )}
+          {!hasDismissedExploreDialog && <ExploreDialogWatcher />}
 
-              {showTutorialCard !== false && !onboardingCard.show && (
-                <div className="flex w-full justify-center">
-                  <TutorialCard onClose={closeTutorialCard} />
-                </div>
-              )}
-            </>
+          {history.length === 0 && (
+            <EmptyChatBody
+              useHub={useHub}
+              showOnboardingCard={onboardingCard.show}
+            />
           )}
         </div>
       </div>

@@ -16,7 +16,7 @@ import {
 import Ollama from "../llm/llms/Ollama.js";
 import { GlobalContext } from "../util/GlobalContext.js";
 
-import { getAllAssistantFiles } from "./getSystemPromptDotFile.js";
+import { getAllAssistantFiles } from "./loadLocalAssistants.js";
 import {
   LOCAL_ONBOARDING_CHAT_MODEL,
   LOCAL_ONBOARDING_PROVIDER_TITLE,
@@ -50,6 +50,7 @@ export class ConfigHandler {
     private ideSettingsPromise: Promise<IdeSettings>,
     private readonly writeLog: (text: string) => Promise<void>,
     sessionInfoPromise: Promise<ControlPlaneSessionInfo | undefined>,
+    private readonly didSelectOrganization?: (orgId: string | null) => void,
   ) {
     this.ide = ide;
     this.ideSettingsPromise = ideSettingsPromise;
@@ -114,12 +115,6 @@ export class ConfigHandler {
   }
 
   private async init() {
-    try {
-      await this.loadLocalProfilesOnly();
-    } catch (e) {
-      console.error("Failed to load local assistants: ", e);
-    }
-
     try {
       await this.fetchControlPlaneProfiles();
     } catch (e) {
@@ -205,6 +200,7 @@ export class ConfigHandler {
             this.ideSettingsPromise,
             this.writeLog,
             this.reloadConfig.bind(this),
+            assistant.rawYaml,
           );
 
           return new ProfileLifecycleManager(profileLoader, this.ide);
@@ -346,7 +342,8 @@ export class ConfigHandler {
   async getSelectedOrgId(): Promise<string | null> {
     const selectedOrgs =
       this.globalContext.get("lastSelectedOrgIdForWorkspace") ?? {};
-    return selectedOrgs[await this.getWorkspaceId()] ?? null;
+    const workspaceId = await this.getWorkspaceId();
+    return selectedOrgs[workspaceId] ?? null;
   }
 
   async setSelectedOrgId(orgId: string | null) {
@@ -354,6 +351,7 @@ export class ConfigHandler {
       this.globalContext.get("lastSelectedOrgIdForWorkspace") ?? {};
     selectedOrgs[await this.getWorkspaceId()] = orgId;
     this.globalContext.update("lastSelectedOrgIdForWorkspace", selectedOrgs);
+    this.didSelectOrganization?.(orgId);
   }
 
   async setSelectedProfile(profileId: string | null) {
@@ -388,6 +386,7 @@ export class ConfigHandler {
       Promise.resolve(sessionInfo),
       this.ideSettingsPromise,
     );
+
     this.fetchControlPlaneProfiles().catch(async (e) => {
       console.error("Failed to fetch control plane profiles: ", e);
       await this.loadLocalProfilesOnly();
